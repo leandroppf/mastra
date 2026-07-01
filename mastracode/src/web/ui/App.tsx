@@ -91,6 +91,17 @@ export default function App() {
     });
   }, []);
 
+  // ── Railway sandbox status ──────────────────────────────────────────
+  // When Railway is enabled, git-clone projects clone inside the sandbox at
+  // /workspace and the local clone-folder picker is skipped.
+  const [railwayEnabled, setRailwayEnabled] = useState(false);
+  useEffect(() => {
+    fetch('/api/web/config')
+      .then(r => r.json())
+      .then((c: { railway?: { enabled?: boolean } }) => setRailwayEnabled(!!c.railway?.enabled))
+      .catch(() => {});
+  }, []);
+
   // ── Projects (localStorage) ─────────────────────────────────────────
   const [projects, setProjects] = useState<Project[]>(() => loadProjects());
   // Restore the last active project on reload (if it still exists), so the
@@ -126,10 +137,17 @@ export default function App() {
   // stamped with an empty tag and never shows up in the worktree's list.
   const sessionEnabled = !!activeProject?.resourceId && (activeProject.source !== 'github' || !!sessionProjectPath);
 
+  const activeProjectGitUrl = activeProject?.source === 'git' ? activeProject.gitUrl : undefined;
+  const activeProjectCloneParentPath = activeProject?.source === 'git' ? activeProject.cloneParentPath : undefined;
+  const activeProjectPath = activeProject?.source === 'git' ? undefined : activeProject?.path;
+  const activeProjectLocation = activeProject?.path;
+
   const session = useAgentControllerSession({
     agentControllerId: 'code',
     resourceId,
-    projectPath: sessionProjectPath,
+    projectPath: activeProject?.source === 'git' ? undefined : sessionProjectPath,
+    gitUrl: activeProjectGitUrl,
+    cloneParentPath: activeProjectCloneParentPath,
     baseUrl,
     enabled: sessionEnabled,
   });
@@ -394,7 +412,9 @@ export default function App() {
   };
 
   // The session-state payload that binds the workspace to the active project:
-  // a path for local projects, or the sandbox binding for GitHub projects.
+  // a path for local projects, or the sandbox binding for GitHub projects. Git
+  // projects resolve their cloned path in the workspace factory from the create
+  // request context, so the UI intentionally does not push projectPath for them.
   const projectStatePayload = useCallback((): Record<string, unknown> => {
     if (activeProject?.source === 'github') {
       // Prefer the freshly materialized binding from this open; fall back to the
@@ -417,6 +437,7 @@ export default function App() {
         branch: worktree?.branch,
       };
     }
+    if (activeProject?.source === 'git') return {};
     return { projectPath: activeProject?.path ?? '' };
   }, [activeProject]);
 
@@ -551,7 +572,10 @@ export default function App() {
         case 'settings': {
           const lines = [
             `Project: ${activeProject?.name ?? '(none)'}`,
-            `Path: ${activeProject?.path ?? '(default workspace)'}`,
+            activeProject?.source === 'git'
+              ? `Repository: ${activeProject.gitUrl ?? '—'}`
+              : `Path: ${activeProjectLocation ?? '(default workspace)'}`,
+            ...(activeProject?.source === 'git' ? [`Clone path: ${activeProjectLocation ?? '—'}`] : []),
             `Mode: ${transcript.modeId ?? '—'}`,
             `Model: ${transcript.modelId ?? '—'}`,
             `Thread: ${transcript.threadId ?? '—'}`,
@@ -790,7 +814,7 @@ export default function App() {
           <button
             className="header-title"
             onClick={() => setProjectsOpen(true)}
-            title={activeProject ? `${activeProject.path} — switch project` : 'Select a project'}
+            title={activeProject ? `${activeProjectLocation} — switch project` : 'Select a project'}
           >
             <LogoMark size={24} className="logo-mark" />
             <span className="header-name">{activeProject ? activeProject.name : 'MastraCode'}</span>
@@ -829,8 +853,8 @@ export default function App() {
             </div>
             <h2>Welcome to MastraCode</h2>
             <p>
-              Open a project folder to start a coding session. Each project keeps its own threads, memory, and workspace
-              — shared with the terminal.
+              Open a project folder or clone a Git URL to start a coding session. Each project keeps its own threads,
+              memory, and workspace.
             </p>
             <button className="btn btn-primary no-project-cta" onClick={() => setProjectsOpen(true)}>
               Open a project
@@ -878,9 +902,15 @@ export default function App() {
                         <dd>{activeProject.gitBranch}</dd>
                       </div>
                     )}
+                    {activeProject.source === 'git' && (
+                      <div className="banner-row">
+                        <dt>Repository</dt>
+                        <dd>{activeProject.gitUrl}</dd>
+                      </div>
+                    )}
                     <div className="banner-row">
-                      <dt>Workspace</dt>
-                      <dd>{sessionProjectPath || activeProject.path || '—'}</dd>
+                      <dt>{activeProject.source === 'git' ? 'Clone path' : 'Workspace'}</dt>
+                      <dd>{sessionProjectPath || activeProjectLocation || '—'}</dd>
                     </div>
                   </dl>
                   <p className="banner-ready">Ready for new conversation</p>
@@ -1020,6 +1050,7 @@ export default function App() {
           onSelectProject={p => void handleSelectProject(p)}
           onProjectsChange={setProjects}
           onClose={() => setProjectsOpen(false)}
+          railwayEnabled={railwayEnabled}
         />
       )}
 

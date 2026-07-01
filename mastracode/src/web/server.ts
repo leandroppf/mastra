@@ -13,6 +13,8 @@ import type { MastraCodeConfig } from '../index.js';
 
 import { mountWebAuth } from './auth.js';
 import { mountConfigRoutes } from './config-routes.js';
+import { debugRailwayCreation, envSummary } from './debug-railway-creation.js';
+import { loadWebEnvFiles } from './env.js';
 import { mountFsRoutes } from './fs-routes.js';
 import { assertReplicaStableStateSecret, isGithubFeatureEnabled } from './github/config.js';
 import { ensureAppDbReady } from './github/db.js';
@@ -20,6 +22,7 @@ import { mountGithubRoutes } from './github/routes.js';
 import { isSandboxEnabled } from './github/sandbox.js';
 import { TenantDispatcher } from './tenant-server.js';
 import { assertRemoteTenantDbIfRequired } from './tenant-storage.js';
+import { createWebWorkspaceFactory } from './workspace.js';
 
 const CONTROLLER_ID = 'code';
 
@@ -61,6 +64,10 @@ export interface WebServer {
  * server can drive many concurrent web users.
  */
 export async function startWebServer(options: WebServerOptions = {}): Promise<WebServer> {
+  debugRailwayCreation('webServer.beforeLoadEnv', envSummary());
+  loadWebEnvFiles();
+  debugRailwayCreation('webServer.afterLoadEnv', envSummary());
+
   const port = options.port ?? 4111;
   const hostname = options.hostname ?? '127.0.0.1';
   const { port: _p, hostname: _h, uiDir, fsRoot, ...mastraCodeConfig } = options;
@@ -72,7 +79,14 @@ export async function startWebServer(options: WebServerOptions = {}): Promise<We
   // and storage instead of spinning up a duplicate internal one. No eager
   // session is minted; each browser client creates/resumes its own isolated
   // session via the controller routes.
-  const result = await mountAgentControllerOnMastra({ ...mastraCodeConfig, controllerId: CONTROLLER_ID });
+  const result = await mountAgentControllerOnMastra({
+    ...mastraCodeConfig,
+    initialState: {
+      homeDir: '/root',
+    },
+    controllerId: CONTROLLER_ID,
+    workspaceFactory: mastraCodeConfig.workspaceFactory ?? createWebWorkspaceFactory(mastraCodeConfig.railway),
+  });
   const controller = result.controller;
   const mastra = result.mastra;
 
@@ -125,6 +139,11 @@ export async function startWebServer(options: WebServerOptions = {}): Promise<We
   // run with Mastra context available. They live under `/api/web/...`, outside
   // the Mastra route surface.
   //
+  // Expose Railway sandbox status so the web UI can skip the local clone
+  // folder picker when Railway is enabled (the clone runs inside the sandbox).
+  const railwayEnvironmentId = mastraCodeConfig.railway?.environmentId ?? process.env.RAILWAY_ENVIRONMENT_ID;
+  app.get('/api/web/config', c => c.json({ railway: { enabled: Boolean(railwayEnvironmentId) } }));
+
   // Server-side directory browser for the project picker (browser can't read
   // absolute paths). Confined to fsRoot (default: home dir).
   mountFsRoutes(app, { root: fsRoot });

@@ -8,9 +8,11 @@ import type {
   PermissionRules,
   PermissionPolicy,
   ToolCategory,
+  CreateAgentControllerSessionResponse,
 } from '@mastra/client-js';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 
+import { MASTRACODE_WEB_GIT_CLONE_CONTEXT_KEY } from '../git-clone-context';
 import { initialTranscript, transcriptReducer } from './transcript';
 import type { TranscriptState } from './transcript';
 
@@ -20,6 +22,12 @@ export type ConnectionStatus = 'connecting' | 'ready' | 'reconnecting' | 'error'
 const THREAD_PAGE_SIZE = 20;
 
 type Session = ReturnType<ReturnType<MastraClient['getAgentController']>['session']>;
+
+function sessionTags(projectPath?: string, gitUrl?: string): Record<string, string> | undefined {
+  if (gitUrl) return { gitUrl };
+  if (projectPath) return { projectPath };
+  return undefined;
+}
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -34,6 +42,8 @@ interface UseAgentControllerSessionArgs {
    * the same repo. When omitted, all threads for the resource are listed.
    */
   projectPath?: string;
+  gitUrl?: string;
+  cloneParentPath?: string;
   /** Defaults to same-origin (Vite proxies /api → mastra dev). */
   baseUrl?: string;
   /**
@@ -93,6 +103,8 @@ export function useAgentControllerSession({
   agentControllerId,
   resourceId,
   projectPath,
+  gitUrl,
+  cloneParentPath,
   baseUrl = '',
   enabled = true,
 }: UseAgentControllerSessionArgs): AgentControllerSessionApi {
@@ -111,6 +123,7 @@ export function useAgentControllerSession({
   projectPathRef.current = projectPath;
   const [models, setModels] = useState<AgentControllerAvailableModel[]>([]);
   const [settings, setSettings] = useState<AgentControllerSessionSettings | null>(null);
+  const sessionIsCreatedRef = useRef<CreateAgentControllerSessionResponse | null>(null);
 
   const refreshSettings = useCallback(async () => {
     try {
@@ -132,13 +145,13 @@ export function useAgentControllerSession({
       setThreads(
         await session.listThreads({
           limit: THREAD_PAGE_SIZE,
-          tags: projectPath ? { projectPath } : undefined,
+          tags: sessionTags(projectPath, gitUrl),
         }),
       );
     } catch {
       /* non-fatal */
     }
-  }, [projectPath]);
+  }, [projectPath, gitUrl]);
 
   useEffect(() => {
     if (!enabled) {
@@ -232,12 +245,30 @@ export function useAgentControllerSession({
       sessionRef.current = session;
       agentControllerRef.current = controller;
 
+      function getSession() {
+        if (sessionIsCreatedRef.current) {
+          return sessionIsCreatedRef.current;
+        }
+
+        return session
+          .create({
+            tags: sessionTags(projectPathRef.current, gitUrl),
+            requestContext: gitUrl
+              ? { [MASTRACODE_WEB_GIT_CLONE_CONTEXT_KEY]: { gitUrl, cloneParentPath } }
+              : undefined,
+          })
+          .then(created => {
+            sessionIsCreatedRef.current = created;
+            return created;
+          });
+      }
+
       try {
         const [created, agentControllerModes] = await Promise.all([
           // Scope initial thread selection to the active project so worktrees
           // sharing a resourceId each resume their own thread. Read the ref so a
           // path that resolved just after connect still tags the thread.
-          session.create({ tags: projectPathRef.current ? { projectPath: projectPathRef.current } : undefined }),
+          getSession(),
           controller.listModes(),
         ]);
         if (disposed) return;
@@ -297,8 +328,9 @@ export function useAgentControllerSession({
       clearTimeout(reconnectTimer);
       unsubscribe?.();
       sessionRef.current = null;
+      sessionIsCreatedRef.current = null;
     };
-  }, [agentControllerId, resourceId, baseUrl, refreshThreads, enabled]);
+  }, [agentControllerId, resourceId, projectPath, gitUrl, cloneParentPath, baseUrl, refreshThreads, enabled]);
 
   const send = useCallback(
     async (text: string) => {
