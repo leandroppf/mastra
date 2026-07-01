@@ -68,6 +68,7 @@ export async function startWebServer(options: WebServerOptions = {}): Promise<We
   const port = options.port ?? 4111;
   const hostname = options.hostname ?? '127.0.0.1';
   const { port: _p, hostname: _h, uiDir, fsRoot, ...mastraCodeConfig } = options;
+  const webWorkspaceFactory = mastraCodeConfig.workspaceFactory ?? createWebWorkspaceFactory(mastraCodeConfig.railway);
 
   // Build the full production controller (agents, modes, tools, memory, OM, MCP,
   // providers, observability) — identical to the terminal app — and register it
@@ -82,7 +83,7 @@ export async function startWebServer(options: WebServerOptions = {}): Promise<We
       homeDir: '/root',
     },
     controllerId: CONTROLLER_ID,
-    workspaceFactory: mastraCodeConfig.workspaceFactory ?? createWebWorkspaceFactory(mastraCodeConfig.railway),
+    workspaceFactory: webWorkspaceFactory,
   });
   const controller = result.controller;
   const mastra = result.mastra;
@@ -120,7 +121,7 @@ export async function startWebServer(options: WebServerOptions = {}): Promise<We
     // deploy) but only local-file tenant DBs are configured.
     assertRemoteTenantDbIfRequired();
     tenantDispatcher = new TenantDispatcher({
-      baseConfig: mastraCodeConfig,
+      baseConfig: { ...mastraCodeConfig, workspaceFactory: webWorkspaceFactory },
       controllerId: CONTROLLER_ID,
     });
     app.use('/api/*', tenantDispatcher.middleware());
