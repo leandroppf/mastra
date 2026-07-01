@@ -13,7 +13,6 @@ import type { MastraCodeConfig } from '../index.js';
 
 import { mountWebAuth } from './auth.js';
 import { mountConfigRoutes } from './config-routes.js';
-import { debugRailwayCreation, envSummary } from './debug-railway-creation.js';
 import { loadWebEnvFiles } from './env.js';
 import { mountFsRoutes } from './fs-routes.js';
 import { assertReplicaStableStateSecret, isGithubFeatureEnabled } from './github/config.js';
@@ -64,9 +63,7 @@ export interface WebServer {
  * server can drive many concurrent web users.
  */
 export async function startWebServer(options: WebServerOptions = {}): Promise<WebServer> {
-  debugRailwayCreation('webServer.beforeLoadEnv', envSummary());
   loadWebEnvFiles();
-  debugRailwayCreation('webServer.afterLoadEnv', envSummary());
 
   const port = options.port ?? 4111;
   const hostname = options.hostname ?? '127.0.0.1';
@@ -142,6 +139,7 @@ export async function startWebServer(options: WebServerOptions = {}): Promise<We
   // Expose Railway sandbox status so the web UI can skip the local clone
   // folder picker when Railway is enabled (the clone runs inside the sandbox).
   const railwayEnvironmentId = mastraCodeConfig.railway?.environmentId ?? process.env.RAILWAY_ENVIRONMENT_ID;
+  process.stderr.write(`MastraCode Railway sandbox: ${railwayEnvironmentId ? 'enabled' : 'disabled'}\n`);
   app.get('/api/web/config', c => c.json({ railway: { enabled: Boolean(railwayEnvironmentId) } }));
 
   // Server-side directory browser for the project picker (browser can't read
