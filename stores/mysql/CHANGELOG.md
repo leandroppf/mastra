@@ -1,5 +1,26 @@
 # @mastra/mysql
 
+## 0.3.3-alpha.1
+
+### Patch Changes
+
+- Pushed remaining dataset read filters and pagination down to storage. ([#18710](https://github.com/mastra-ai/mastra/pull/18710))
+
+  `DatasetsManager.list({ filters })` now accepts `targetType`, `targetIds` (overlap/union semantics), and `name` (substring, case-insensitive) in addition to the existing tenancy and candidate filters. Filtering is pushed down to the storage layer so callers no longer have to post-filter results.
+
+  Storage adapters must also be upgraded to the versions listed below to honor the new filters. If a caller is on this version of `@mastra/core` but on an older storage adapter, the new `targetType`/`targetIds`/`name` filter keys are silently ignored by the adapter — no runtime error, but the filter has no effect and every dataset in the tenancy is returned.
+
+  `Dataset.listItems({ version, search, page, perPage })` now applies `search` and pagination at the storage layer when `version` is provided alongside any of those. Previously they were silently dropped whenever `version` was set. The return shape is unchanged: passing only `version` still returns a bare `DatasetItem[]` snapshot; passing `search`, `page`, or `perPage` (with or without `version`) returns the paginated `{ items, pagination }` shape. The bare-array branch is marked `@deprecated`; prefer passing `page` / `perPage` to always receive the paginated shape.
+
+- Filled a pre-existing CRUD gap so the new dataset filter API works end-to-end on MySQL. ([#18710](https://github.com/mastra-ai/mastra/pull/18710))
+
+  `createDataset`, `updateDataset`, and `mapDataset` now persist and hydrate `targetType`, `targetIds`, `scorerIds`, `tags`, and `requestContextSchema`. The columns were already declared by the shared schema but were never written or read, so `listDatasets({ filters: { targetType, targetIds, name } })` would have matched nothing on MySQL before this fix. `alterTable.ifNotExists` was widened so in-place upgrades pick up the columns for older databases.
+
+  Also fixed a `mapItem` row deserialization bug: when the stored input/groundTruth/metadata was a JSON string scalar, the mysql2 driver auto-parses the JSON column to a JS string and the previous `parseJSON` helper then tried to `JSON.parse` it again and silently returned `undefined`. It now falls back to the raw string when re-parsing fails, so versioned `listItems({ search })` results round-trip the original input.
+
+- Updated dependencies [[`c64c2a8`](https://github.com/mastra-ai/mastra/commit/c64c2a8503a50252f9ca6b8e8c54cadee31b92a2)]:
+  - @mastra/core@1.49.0-alpha.5
+
 ## 0.3.3-alpha.0
 
 ### Patch Changes

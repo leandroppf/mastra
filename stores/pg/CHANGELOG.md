@@ -1,5 +1,24 @@
 # @mastra/pg
 
+## 1.15.0-alpha.1
+
+### Patch Changes
+
+- Pushed remaining dataset read filters and pagination down to storage. ([#18710](https://github.com/mastra-ai/mastra/pull/18710))
+
+  `DatasetsManager.list({ filters })` now accepts `targetType`, `targetIds` (overlap/union semantics), and `name` (substring, case-insensitive) in addition to the existing tenancy and candidate filters. Filtering is pushed down to the storage layer so callers no longer have to post-filter results.
+
+  Storage adapters must also be upgraded to the versions listed below to honor the new filters. If a caller is on this version of `@mastra/core` but on an older storage adapter, the new `targetType`/`targetIds`/`name` filter keys are silently ignored by the adapter — no runtime error, but the filter has no effect and every dataset in the tenancy is returned.
+
+  `Dataset.listItems({ version, search, page, perPage })` now applies `search` and pagination at the storage layer when `version` is provided alongside any of those. Previously they were silently dropped whenever `version` was set. The return shape is unchanged: passing only `version` still returns a bare `DatasetItem[]` snapshot; passing `search`, `page`, or `perPage` (with or without `version`) returns the paginated `{ items, pagination }` shape. The bare-array branch is marked `@deprecated`; prefer passing `page` / `perPage` to always receive the paginated shape.
+
+- Fixed a double-encoding bug where `createDataset` and `updateDataset` stored `targetIds` and `scorerIds` as JSON-encoded strings into the `JSONB` columns instead of arrays. This caused the new `listDatasets({ filters: { targetIds } })` overlap query (`targetIds ?| array[...]`) to never match. ([#18710](https://github.com/mastra-ai/mastra/pull/18710))
+
+  Existing rows written before this fix are still double-encoded and will not be matched by the new `targetIds` filter. They self-heal on the next `updateDataset` call. Deployments with a long tail of pre-existing datasets should run a one-time backfill (re-encoding `targetIds` and `scorerIds` on affected rows) rather than rely on incidental writes; this can be tracked as a follow-up if needed.
+
+- Updated dependencies [[`c64c2a8`](https://github.com/mastra-ai/mastra/commit/c64c2a8503a50252f9ca6b8e8c54cadee31b92a2)]:
+  - @mastra/core@1.49.0-alpha.5
+
 ## 1.15.0-alpha.0
 
 ### Minor Changes

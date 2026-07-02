@@ -1,5 +1,24 @@
 # @mastra/spanner
 
+## 1.2.2-alpha.0
+
+### Patch Changes
+
+- Pushed remaining dataset read filters and pagination down to storage. ([#18710](https://github.com/mastra-ai/mastra/pull/18710))
+
+  `DatasetsManager.list({ filters })` now accepts `targetType`, `targetIds` (overlap/union semantics), and `name` (substring, case-insensitive) in addition to the existing tenancy and candidate filters. Filtering is pushed down to the storage layer so callers no longer have to post-filter results.
+
+  Storage adapters must also be upgraded to the versions listed below to honor the new filters. If a caller is on this version of `@mastra/core` but on an older storage adapter, the new `targetType`/`targetIds`/`name` filter keys are silently ignored by the adapter — no runtime error, but the filter has no effect and every dataset in the tenancy is returned.
+
+  `Dataset.listItems({ version, search, page, perPage })` now applies `search` and pagination at the storage layer when `version` is provided alongside any of those. Previously they were silently dropped whenever `version` was set. The return shape is unchanged: passing only `version` still returns a bare `DatasetItem[]` snapshot; passing `search`, `page`, or `perPage` (with or without `version`) returns the paginated `{ items, pagination }` shape. The bare-array branch is marked `@deprecated`; prefer passing `page` / `perPage` to always receive the paginated shape.
+
+- Widened `SpannerStore` dataset initialization to backfill `targetType`, `targetIds`, and `scorerIds` on pre-existing `mastra_datasets` tables. The `createDataset` / `updateDataset` write paths and the new `listDatasets` `targetType` / `targetIds` filters (MASTRA-4433) reference these columns; deployments that upgraded in place before these columns were declared would otherwise hit column-not-found errors on both writes and the new filter path. ([#18710](https://github.com/mastra-ai/mastra/pull/18710))
+
+  Fresh databases were already unaffected because `createTable` reads the full `DATASETS_SCHEMA`.
+
+- Updated dependencies [[`c64c2a8`](https://github.com/mastra-ai/mastra/commit/c64c2a8503a50252f9ca6b8e8c54cadee31b92a2)]:
+  - @mastra/core@1.49.0-alpha.5
+
 ## 1.2.1
 
 ### Patch Changes
